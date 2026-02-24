@@ -10,9 +10,20 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
 
+    services:
+      mongodb:
+        image: mongo:6.0
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd mongosh
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     strategy:
       matrix:
-        node-version: [18.x, 20.x]
+        node-version: [18.x]
 
     steps:
     - name: Bajar el código (Checkout)
@@ -31,4 +42,3 @@ jobs:
       run: npm test
       env:
         JWT_SECRET: "secreto_para_tests"
-        MONGO_URI: "mongodb://127.0.0.1/test_db"
