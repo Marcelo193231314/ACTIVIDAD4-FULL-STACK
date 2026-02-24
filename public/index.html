@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LigaManager</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+    <div class="container">
+        <h1>LigaManager</h1>
+
+        <div id="authSection">
+            <h2>Iniciar Sesión</h2>
+            <input type="email" id="email" placeholder="Correo electrónico">
+            <input type="password" id="password" placeholder="Contraseña">
+            <button onclick="login()">Entrar</button>
+            <p style="text-align: center;">¿No tienes cuenta? <a href="#" onclick="registerAdmin()">Registrar Admin</a></p>
+            <p id="loginError" style="color: red;"></p>
+        </div>
+
+        <div id="dashboardSection" class="hidden">
+            <button style="background-color: #6c757d; margin-bottom: 20px;" onclick="logout()">Cerrar Sesión</button>
+            
+            <div class="grid-2">
+                <div>
+                    <h3>Equipos</h3>
+                    <div class="form-box">
+                        <h4>Nuevo Equipo</h4>
+                        <input type="text" id="teamName" placeholder="Nombre">
+                        <input type="text" id="teamShort" placeholder="Abreviatura (5 letras)">
+                        <input type="text" id="teamStadium" placeholder="Estadio">
+                        <button onclick="createTeam()">Guardar Equipo</button>
+                    </div>
+                    <div id="teamsList"></div>
+                </div>
+
+                <div>
+                    <h3>Partidos</h3>
+                    <div class="form-box">
+                        <h4>Programar Partido</h4>
+                        <label>Local:</label>
+                        <select id="homeTeamSelect"></select>
+                        <label>Visitante:</label>
+                        <select id="awayTeamSelect"></select>
+                        <label>Fecha (YYYY-MM-DD):</label>
+                        <input type="text" id="matchDate" placeholder="Ej: 2026-05-20">
+                        <button onclick="createMatch()">Crear Partido</button>
+                    </div>
+                    <div id="matchesList"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:4000/api';
+        let token = localStorage.getItem('token');
+        let teamsCache = [];
+
+        if (token) {
+            showDashboard();
+        }
+
+        async function login() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+
+            try {
+                const res = await fetch(`${API_URL}/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+                const data = await res.json();
+
+                if (res.ok) {
+                    token = data.token;
+                    localStorage.setItem('token', token);
+                    showDashboard();
+                } else {
+                    document.getElementById('loginError').innerText = data.msg || 'Error';
+                }
+            } catch (error) { console.error(error); }
+        }
+
+        async function registerAdmin() {
+            const email = prompt("Email:");
+            const password = prompt("Contraseña:");
+            if(!email || !password) return;
+
+            await fetch(`${API_URL}/auth/register`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: "Admin", email, password, role: "admin" })
+            });
+            alert("Registrado. Inicia sesión.");
+        }
+
+        function logout() {
+            localStorage.removeItem('token');
+            location.reload();
+        }
+
+        function showDashboard() {
+            document.getElementById('authSection').classList.add('hidden');
+            document.getElementById('dashboardSection').classList.remove('hidden');
+            loadTeams();
+            loadMatches();
+        }
+
+        async function loadTeams() {
+            const res = await fetch(`${API_URL}/teams`);
+            teamsCache = await res.json();
+            
+            const list = document.getElementById('teamsList');
+            const homeSelect = document.getElementById('homeTeamSelect');
+            const awaySelect = document.getElementById('awayTeamSelect');
+            
+            list.innerHTML = '';
+            homeSelect.innerHTML = '<option value="">Selecciona Local</option>';
+            awaySelect.innerHTML = '<option value="">Selecciona Visitante</option>';
+
+            teamsCache.forEach(team => {
+                const item = document.createElement('div');
+                item.className = 'card';
+                item.innerHTML = `
+                    <div><b>${team.name}</b> (${team.shortName})</div>
+                    <button class="delete-btn" onclick="deleteTeam('${team._id}')">X</button>
+                `;
+                list.appendChild(item);
+
+                const option = `<option value="${team._id}">${team.name}</option>`;
+                homeSelect.innerHTML += option;
+                awaySelect.innerHTML += option;
+            });
+        }
+
+        async function createTeam() {
+            const name = document.getElementById('teamName').value;
+            const shortName = document.getElementById('teamShort').value;
+            const stadium = document.getElementById('teamStadium').value;
+
+            const res = await fetch(`${API_URL}/teams`, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': token
+                },
+                body: JSON.stringify({ name, shortName, stadium })
+            });
+
+            if (res.ok) {
+                loadTeams();
+                document.getElementById('teamName').value = '';
+                document.getElementById('teamShort').value = '';
+                document.getElementById('teamStadium').value = '';
+            } else {
+                alert("Error al crear equipo");
+            }
+        }
+
+        async function deleteTeam(id) {
+            if(!confirm("¿Borrar?")) return;
+            const res = await fetch(`${API_URL}/teams/${id}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': token }
+            });
+            if (res.ok) loadTeams();
+        }
+
+        async function loadMatches() {
+            const res = await fetch(`${API_URL}/matches`);
+            const matches = await res.json();
+            
+            const list = document.getElementById('matchesList');
+            list.innerHTML = '';
+
+            matches.forEach(match => {
+                const dateObj = new Date(match.date);
+                const date = dateObj.toISOString().split('T')[0];
+
+                const item = document.createElement('div');
+                item.className = 'card';
+                
+                let scoreDisplay = match.status === 'finished' 
+                    ? `<b>${match.homeScore} - ${match.awayScore}</b>` 
+                    : '<span style="color:gray">vs</span>';
+
+                item.innerHTML = `
+                    <div style="width:100%">
+                        <div style="display:flex; justify-content:space-between;">
+                            <span>${match.homeTeam.name}</span>
+                            ${scoreDisplay}
+                            <span>${match.awayTeam.name}</span>
+                        </div>
+                        <small>${date} - ${match.status}</small>
+                        ${match.status !== 'finished' ? `<button class="update-btn" style="width:100%; margin:5px 0 0 0;" onclick="updateScore('${match._id}')">Poner Resultado</button>` : ''}
+                    </div>
+                `;
+                list.appendChild(item);
+            });
+        }
+
+        async function createMatch() {
+            const homeTeam = document.getElementById('homeTeamSelect').value;
+            const awayTeam = document.getElementById('awayTeamSelect').value;
+            const date = document.getElementById('matchDate').value;
+
+            if(homeTeam === awayTeam) {
+                return alert("El equipo no puede jugar contra sí mismo");
+            }
+            if(!date) {
+                return alert("Debes escribir una fecha");
+            }
+
+            const res = await fetch(`${API_URL}/matches`, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': token
+                },
+                body: JSON.stringify({ homeTeam, awayTeam, date })
+            });
+
+            if (res.ok) {
+                loadMatches();
+                document.getElementById('matchDate').value = '';
+            } else {
+                alert("Error al crear partido. Revisa el formato de fecha (YYYY-MM-DD)");
+            }
+        }
+
+        async function updateScore(id) {
+            const homeScore = prompt("Goles Local:");
+            const awayScore = prompt("Goles Visitante:");
+            
+            if(homeScore === null || awayScore === null) return;
+
+            const res = await fetch(`${API_URL}/matches/${id}`, {
+                method: 'PUT',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': token
+                },
+                body: JSON.stringify({ homeScore, awayScore })
+            });
+
+            if (res.ok) loadMatches();
+        }
+    </script>
+</body>
+</html>
